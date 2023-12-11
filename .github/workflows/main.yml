@@ -1,56 +1,101 @@
-name: Stale Issues Workflow
+title: |-
+  Remote access with Ngrok for macOS
+summary: |
+  Remote access with Ngrok for macOS. Exposes SSH and VNC (Screen Sharing) ports via ngrok.
+description: |
+  ## Warning!! DO NOT run this step on your own Mac!!
 
-on:
-  # Allows manually running
-  # https://docs.github.com/en/actions/reference/events-that-trigger-workflows#manual-events
-  workflow_dispatch:
-  
-  schedule:
-    # Runs at 08:00 UTC every day
-    # https://docs.github.com/en/actions/reference/events-that-trigger-workflows#schedule
-    - cron: '0 8 * * *'
+  **DO NOT RUN THIS STEP ON YOUR OWN MAC!!**
 
-jobs:
-  stale:
-    runs-on: ubuntu-latest
-    steps:
-      # https://github.com/actions/stale
-      - uses: actions/stale@v3
-        with:
-          repo-token: ${{ secrets.CORESTEPS_BOT_GITHUB_TOKEN }}
-          # do not manage PRs
-          days-before-pr-stale: -1
-          days-before-pr-close: -1
-          # stale issue config
-          exempt-issue-labels: 'bug'
-          days-before-issue-stale: 90
-          days-before-issue-close: 21
-          stale-issue-message: |
-            Hello there, I'm a bot. On behalf of the community I thank you for opening this issue.
+  Based on its inputs, if specified, this step changes the current user's MacOS login password!
 
-            To help our human contributors focus on the most relevant reports, I check up on old issues to see if they're still relevant.
-            This issue has had no activity for 90 days, so I marked it as stale.
+  The Step also changes the SSH `authorized_keys`, to allow access for the specified key,
+  so please be very cautious where you run this step!
 
-            The community would appreciate if you could check if the issue still persists. If it isn't, please close it.
-            If the issue persists, and you'd like to remove the stale label, you simply need to leave a comment. Your comment can be as simple as "still important to me".
-            
-            If no comment left within 21 days, this issue will be closed.
-          close-issue-message: >
-            I'll close this issue as it doesn't seem to be relevant anymore.
+  This step was created purely for remote debugging purposes!
 
-            We believe an old issue probably has a bunch of context that's no longer relevant, therefore, if the problem still persists, please open a new issue.
-          stale-issue-label: stale
-      # https://github.com/jakejarvis/wait-action
-      # Wait 1m to make sure lock-threads will actually lock the issue where stale just recently left a message.
-      - uses: jakejarvis/wait-action@master
-        with:
-          time: '1m'
-      # https://github.com/dessant/lock-threads
-      - uses: dessant/lock-threads@v2
-        with:
-          github-token: ${{ secrets.CORESTEPS_BOT_GITHUB_TOKEN }}
-          # do not manage PRs
-          process-only: issues
-          # stale issue config
-          issue-lock-inactive-days: 0 # immediately lock closed issues
-          issue-lock-reason: ''
+  ## Setup
+
+  Exposes SSH and VNC (Screen Sharing) ports via [ngrok](https://ngrok.com/).
+
+  To be able to use this step you have to register an [ngrok](https://ngrok.com/) account.
+  Once you registered an account on ngrok go to the [Auth menu](https://dashboard.ngrok.com/auth),
+  you can find your Ngrok Authtoken there.
+
+  ## Configuration
+
+  ngrok auth token is required, as well as either an SSH or a Screen Sharing / VNC config.
+  If neither SSH nor VNC / screen sharing is specified the step will fail.
+
+  You can of course speicify both SSH and VNC configs, in which case the step
+  will configure both, but **if you only need SSH or VNC then you're free to only provide that configuration**,
+  and the step will only enable the feature (SSH, VNC)
+  which you provide; it simply won't activate the one(s) you don't provide.
+website: https://github.com/bitrise-steplib/steps-remote-access-macos-ngrok
+source_code_url: https://github.com/bitrise-steplib/steps-remote-access-macos-ngrok
+support_url: https://github.com/bitrise-steplib/steps-remote-access-macos-ngrok/issues
+host_os_tags:
+  - osx-10.10
+type_tags:
+  - utility
+
+is_requires_admin_user: true
+is_always_run: true
+is_skippable: false
+run_if: ".IsCI"
+
+deps:
+  brew:
+  - name: caskroom/cask/ngrok
+    bin_name: ngrok
+
+toolkit:
+  go:
+    package_name: github.com/bitrise-steplib/steps-remote-access-macos-ngrok
+
+inputs:
+  - ngrok_auth_token: $NGROK_AUTH_TOKEN
+    opts:
+      title: Ngrok Authtoken
+      summary: Ngrok Authtoken
+      description: |
+        To be able to use this step you have to register an [ngrok](https://ngrok.com/) account.
+        Once you registered an account on ngrok go to the [Auth menu](https://dashboard.ngrok.com/auth),
+        you can find your Ngrok Authtoken there.
+      is_expand: true
+      is_required: true
+  - ssh_public_key: $SSH_PUBLIC_KEY
+    opts:
+      title: "SSH public key"
+      summary: SSH public key for SSH connection.
+      description: |
+        The SSH public key to enable for SSH connection.
+
+        You can generate a suitable SSH key with: `ssh-keygen -t rsa -b 4096 -P '' -f ./bitrise-ssh`
+
+        If you used the above command to generate the SSH key-pair:
+
+        * The public key (which you should specify for this input) can be found in: `bitrise-ssh.pub`
+        * And the private key (which you don't have to specify here, but you'll need it when you try to SSH into the host) can be found in: `./bitrise-ssh`
+      is_expand: true
+      is_required: false
+  - user_and_screen_share_password: $USER_AND_SCREEN_SHARE_PASSWORD
+    opts:
+      title: "User and Screen Share password"
+      summary: The specified password will be set as the current User's password and as the VNC password.
+      description: |
+        The specified password **will be set as the current User's password** and as the VNC password.
+      is_expand: true
+      is_required: false
+  - is_step_debug_mode: "false"
+    opts:
+      category: Debug
+      title: "Step Debug Mode"
+      summary: |-
+        WARNING: enabling this option exposes secrets! Should only be used for development purposes / to debug the step!
+      description: |
+        **WARNING:** enabling this option exposes secrets! Should only be used for development purposes / to debug the step!
+      is_required: true
+      value_options:
+      - "false"
+      - "true"
