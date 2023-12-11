@@ -1,101 +1,75 @@
-title: |-
-  Remote access with Ngrok for macOS
-summary: |
-  Remote access with Ngrok for macOS. Exposes SSH and VNC (Screen Sharing) ports via ngrok.
-description: |
-  ## Warning!! DO NOT run this step on your own Mac!!
+# This workflow will build a docker container, publish it to IBM Container Registry, and deploy it to IKS when a release is created
+#
+# To configure this workflow:
+#
+# 1. Ensure that your repository contains a Dockerfile
+# 2. Setup secrets in your repository by going to settings: Create ICR_NAMESPACE and IBM_CLOUD_API_KEY
+# 3. Change the values for the IBM_CLOUD_REGION, REGISTRY_HOSTNAME, IMAGE_NAME, IKS_CLUSTER, DEPLOYMENT_NAME, and PORT
 
-  **DO NOT RUN THIS STEP ON YOUR OWN MAC!!**
+name: Build and Deploy to IKS
 
-  Based on its inputs, if specified, this step changes the current user's MacOS login password!
+on:
+  release:
+    types: [created]
 
-  The Step also changes the SSH `authorized_keys`, to allow access for the specified key,
-  so please be very cautious where you run this step!
+# Environment variables available to all jobs and steps in this workflow
+env:
+  GITHUB_SHA: ${{ github.sha }}
+  IBM_CLOUD_API_KEY: ${{ secrets.IBM_CLOUD_API_KEY }}
+  IBM_CLOUD_REGION: us-south
+  ICR_NAMESPACE: ${{ secrets.ICR_NAMESPACE }}
+  REGISTRY_HOSTNAME: us.icr.io
+  IMAGE_NAME: iks-test
+  IKS_CLUSTER: example-iks-cluster-name-or-id
+  DEPLOYMENT_NAME: iks-test
+  PORT: 5001
 
-  This step was created purely for remote debugging purposes!
+jobs:
+  setup-build-publish-deploy:
+    name: Setup, Build, Publish, and Deploy
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
 
-  ## Setup
+    - name: Checkout
+      uses: actions/checkout@v2
 
-  Exposes SSH and VNC (Screen Sharing) ports via [ngrok](https://ngrok.com/).
+    # Download and Install IBM Cloud CLI
+    - name: Install IBM Cloud CLI
+      run: |
+        curl -fsSL https://clis.cloud.ibm.com/install/linux | sh
+        ibmcloud --version
+        ibmcloud config --check-version=false
+        ibmcloud plugin install -f kubernetes-service
+        ibmcloud plugin install -f container-registry
 
-  To be able to use this step you have to register an [ngrok](https://ngrok.com/) account.
-  Once you registered an account on ngrok go to the [Auth menu](https://dashboard.ngrok.com/auth),
-  you can find your Ngrok Authtoken there.
+    # Authenticate with IBM Cloud CLI
+    - name: Authenticate with IBM Cloud CLI
+      run: |
+        ibmcloud login --apikey "${IBM_CLOUD_API_KEY}" -r "${IBM_CLOUD_REGION}" -g default
+        ibmcloud cr region-set "${IBM_CLOUD_REGION}"
+        ibmcloud cr login
 
-  ## Configuration
+    # Build the Docker image
+    - name: Build with Docker
+      run: |
+        docker build -t "$REGISTRY_HOSTNAME"/"$ICR_NAMESPACE"/"$IMAGE_NAME":"$GITHUB_SHA" \
+          --build-arg GITHUB_SHA="$GITHUB_SHA" \
+          --build-arg GITHUB_REF="$GITHUB_REF" .
 
-  ngrok auth token is required, as well as either an SSH or a Screen Sharing / VNC config.
-  If neither SSH nor VNC / screen sharing is specified the step will fail.
+    # Push the image to IBM Container Registry
+    - name: Push the image to ICR
+      run: |
+        docker push $REGISTRY_HOSTNAME/$ICR_NAMESPACE/$IMAGE_NAME:$GITHUB_SHA
 
-  You can of course speicify both SSH and VNC configs, in which case the step
-  will configure both, but **if you only need SSH or VNC then you're free to only provide that configuration**,
-  and the step will only enable the feature (SSH, VNC)
-  which you provide; it simply won't activate the one(s) you don't provide.
-website: https://github.com/bitrise-steplib/steps-remote-access-macos-ngrok
-source_code_url: https://github.com/bitrise-steplib/steps-remote-access-macos-ngrok
-support_url: https://github.com/bitrise-steplib/steps-remote-access-macos-ngrok/issues
-host_os_tags:
-  - osx-10.10
-type_tags:
-  - utility
-
-is_requires_admin_user: true
-is_always_run: true
-is_skippable: false
-run_if: ".IsCI"
-
-deps:
-  brew:
-  - name: caskroom/cask/ngrok
-    bin_name: ngrok
-
-toolkit:
-  go:
-    package_name: github.com/bitrise-steplib/steps-remote-access-macos-ngrok
-
-inputs:
-  - ngrok_auth_token: $NGROK_AUTH_TOKEN
-    opts:
-      title: Ngrok Authtoken
-      summary: Ngrok Authtoken
-      description: |
-        To be able to use this step you have to register an [ngrok](https://ngrok.com/) account.
-        Once you registered an account on ngrok go to the [Auth menu](https://dashboard.ngrok.com/auth),
-        you can find your Ngrok Authtoken there.
-      is_expand: true
-      is_required: true
-  - ssh_public_key: $SSH_PUBLIC_KEY
-    opts:
-      title: "SSH public key"
-      summary: SSH public key for SSH connection.
-      description: |
-        The SSH public key to enable for SSH connection.
-
-        You can generate a suitable SSH key with: `ssh-keygen -t rsa -b 4096 -P '' -f ./bitrise-ssh`
-
-        If you used the above command to generate the SSH key-pair:
-
-        * The public key (which you should specify for this input) can be found in: `bitrise-ssh.pub`
-        * And the private key (which you don't have to specify here, but you'll need it when you try to SSH into the host) can be found in: `./bitrise-ssh`
-      is_expand: true
-      is_required: false
-  - user_and_screen_share_password: $USER_AND_SCREEN_SHARE_PASSWORD
-    opts:
-      title: "User and Screen Share password"
-      summary: The specified password will be set as the current User's password and as the VNC password.
-      description: |
-        The specified password **will be set as the current User's password** and as the VNC password.
-      is_expand: true
-      is_required: false
-  - is_step_debug_mode: "false"
-    opts:
-      category: Debug
-      title: "Step Debug Mode"
-      summary: |-
-        WARNING: enabling this option exposes secrets! Should only be used for development purposes / to debug the step!
-      description: |
-        **WARNING:** enabling this option exposes secrets! Should only be used for development purposes / to debug the step!
-      is_required: true
-      value_options:
-      - "false"
-      - "true"
+    # Deploy the Docker image to the IKS cluster
+    - name: Deploy to IKS
+      run: |
+        ibmcloud ks cluster config --cluster $IKS_CLUSTER
+        kubectl config current-context
+        kubectl create deployment $DEPLOYMENT_NAME --image=$REGISTRY_HOSTNAME/$ICR_NAMESPACE/$IMAGE_NAME:$GITHUB_SHA --dry-run -o yaml > deployment.yaml
+        kubectl apply -f deployment.yaml
+        kubectl rollout status deployment/$DEPLOYMENT_NAME
+        kubectl create service loadbalancer $DEPLOYMENT_NAME --tcp=80:$PORT --dry-run -o yaml > service.yaml
+        kubectl apply -f service.yaml
+        kubectl get services -o wide
